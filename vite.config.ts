@@ -34,9 +34,12 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: "/index.html",
+        // Never let the service worker answer API or WebSocket paths.
+        navigateFallbackDenylist: [/^\/api/, /^\/ws/],
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.pathname.startsWith("/api"),
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith("/api") || url.pathname.startsWith("/ws"),
             handler: "NetworkOnly",
           },
         ],

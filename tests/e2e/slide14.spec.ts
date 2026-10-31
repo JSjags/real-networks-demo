@@ -10,7 +10,7 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test";
  */
 
 async function resetServer(request: typeof test.prototype extends never ? never : import("@playwright/test").APIRequestContext) {
-  await request.post("http://127.0.0.1:8787/reset");
+  await request.post("/api/reset");
 }
 
 async function openAs(page: Page, client: "ada" | "chidi") {

@@ -1,24 +1,34 @@
 import cors from "cors";
 import express from "express";
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import qrcode from "qrcode-terminal";
 import type { MutationPayload } from "../shared/types.js";
 import { OrderStore } from "./store.js";
 
-const API_PORT = Number(process.env.API_PORT ?? 8787);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 8787);
+const IS_PROD = process.env.NODE_ENV === "production";
+const IS_HOSTED = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
+const DIST_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist");
 const store = new OrderStore();
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "256kb" }));
 
-app.get("/health", (_req, res) => {
+// All API routes live on a router mounted at both "/api" (production, same origin
+// as the built client) and "/" (dev: Vite's proxy strips the /api prefix).
+const api = express.Router();
+
+api.get("/health", (_req, res) => {
   res.json({ ok: true, orderId: "42", cursor: store.getCursor() });
 });
 
-app.get("/order/:id", (req, res) => {
+api.get("/order/:id", (req, res) => {
   const order = store.getOrder();
   if (req.params.id !== order.id) {
     res.status(404).json({ error: "Order not found" });
@@ -28,7 +38,7 @@ app.get("/order/:id", (req, res) => {
 });
 
 /** Cursor-based pull: GET /changes?since=c_41 */
-app.get("/changes", (req, res) => {
+api.get("/changes", (req, res) => {
   const since = typeof req.query.since === "string" ? req.query.since : null;
   const result = store.getChangesSince(since);
   res.json(result);
@@ -39,7 +49,7 @@ app.get("/changes", (req, res) => {
  * Idempotency-Key header (or per-item key) dedupes retries.
  * Accepts a single mutation or { mutations: [...] } for batching.
  */
-app.post("/push", (req, res) => {
+api.post("/push", (req, res) => {
   const headerKey = req.header("Idempotency-Key");
   const body = req.body;
 
@@ -83,10 +93,37 @@ app.post("/push", (req, res) => {
 });
 
 /** One-click reset to starting state of order #42 */
-app.post("/reset", (_req, res) => {
+api.post("/reset", (_req, res) => {
   const order = store.reset();
   res.json({ order, cursor: store.getCursor() });
 });
+
+app.use("/api", api);
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+app.use(api);
+
+// Production: serve the built client (vite build → dist/) with SPA fallback.
+const serveClient = existsSync(path.join(DIST_DIR, "index.html"));
+if (serveClient) {
+  app.use(
+    express.static(DIST_DIR, {
+      index: "index.html",
+      setHeaders(res, filePath) {
+        const base = path.basename(filePath);
+        if (base === "sw.js" || base.startsWith("workbox-") || base === "index.html" || base.endsWith(".webmanifest")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    })
+  );
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api") || req.path.startsWith("/ws")) return next();
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(path.join(DIST_DIR, "index.html"));
+  });
+}
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
@@ -145,7 +182,27 @@ function lanAddresses(): string[] {
   return addrs;
 }
 
-server.listen(API_PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", () => {
+  if (IS_PROD || IS_HOSTED) {
+    const publicUrl = process.env.RENDER_EXTERNAL_URL;
+    console.log(`Order #42 sync server listening on 0.0.0.0:${PORT}`);
+    console.log(`  client: ${serveClient ? DIST_DIR : "NOT BUILT (run npm run build)"}`);
+    console.log("  API: /api/*   WebSocket: /ws   Health: /api/health");
+    if (publicUrl) {
+      console.log(`  Public URL: ${publicUrl}`);
+      try {
+        qrcode.generate(publicUrl, { small: true });
+      } catch {
+        // QR is a nicety; never crash for it.
+      }
+    }
+    return;
+  }
+  printDevBanner();
+});
+
+function printDevBanner() {
+  const API_PORT = PORT;
   const lans = lanAddresses();
   console.log("");
   console.log("╔══════════════════════════════════════════════════════════╗");
@@ -162,11 +219,15 @@ server.listen(API_PORT, "0.0.0.0", () => {
   if (lans[0]) {
     const url = `http://${lans[0]}:5173`;
     console.log(`Scan this QR on a phone (same Wi-Fi) → ${url}`);
-    qrcode.generate(url, { small: true });
+    try {
+      qrcode.generate(url, { small: true });
+    } catch {
+      // ignore
+    }
   } else {
     console.log("No LAN IPv4 found — phone access needs a local network address.");
   }
   console.log("Tip: Chrome DevTools → Network → Offline for the web tab.");
   console.log("     Phone: open the LAN URL, then airplane mode for Ada.");
   console.log("");
-});
+}

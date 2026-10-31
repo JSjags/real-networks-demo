@@ -87,6 +87,26 @@ The API is proxied through Vite (`/api`, `/ws`), so the phone only needs port **
 
 ---
 
+## Deploy to Render (one public HTTPS link)
+
+Production runs as **one Node process**: it serves the built PWA, the API under `/api/*`, and the WebSocket at `/ws` on the same origin, listening on `$PORT` (falls back to `API_PORT`, then 8787) on `0.0.0.0`.
+
+1. Render dashboard → **New → Blueprint** → pick `JSjags/real-networks-demo`. It reads `render.yaml` (free web service, Node ≥ 20).
+   - Or **New → Web Service** with:
+     - Build command: `npm install --include=dev && npm run build`
+     - Start command: `npm start`
+     - Health check path: `/api/health`
+2. Open the `https://<service>.onrender.com` URL on your laptop **and** phone — no shared Wi-Fi needed.
+3. Free instances sleep after ~15 minutes idle; open the URL (or `/api/health`) a few minutes before the talk to wake it. State is in memory, so press **Reset #42** before going on.
+
+Try production locally:
+
+```bash
+npm run build
+PORT=10000 npm start          # http://127.0.0.1:10000
+npm run test:e2e:prod         # e2e suite against the production server
+```
+
 ## Architecture (short)
 
 ```
