@@ -1,0 +1,12 @@
+node_modules
+dist
+shared/dist
+.DS_Store
+*.log
+playwright-report
+test-results
+.vite
+dev-dist
+*.local
+.cache
+uploads
