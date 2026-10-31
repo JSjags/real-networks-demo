@@ -135,3 +135,30 @@ test("slide 14: same-field conflict shows last-write-wins note", async ({ browse
   await adaCtx.close();
   await chidiCtx.close();
 });
+
+test("Reset #42 uses the in-app confirm and restores the starting order", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await openAs(page, "chidi");
+
+  await page.getByTestId("input-address").fill("Aba Road");
+  await page.getByTestId("save-address").click();
+  await expect(page.getByTestId("order-snapshot")).toContainText('addr="Aba Road"');
+  await expect(page.getByTestId("outbox-empty")).toBeVisible({ timeout: 20_000 });
+
+  // Cancel keeps the edit
+  await page.getByTestId("reset-demo").click();
+  await expect(page.getByTestId("reset-confirm-box")).toBeVisible();
+  await page.getByTestId("reset-cancel").click();
+  await expect(page.getByTestId("reset-confirm-box")).toBeHidden();
+  await expect(page.getByTestId("order-snapshot")).toContainText('addr="Aba Road"');
+
+  // Confirm resets server + local
+  await page.getByTestId("reset-demo").click();
+  await page.getByTestId("reset-confirm").click();
+  await expect(page.getByTestId("order-snapshot")).toContainText('addr="Ama St."', { timeout: 15_000 });
+  await expect(page.getByTestId("order-snapshot")).toContainText('qty="1 bag"');
+  await expect(page.getByTestId("input-address")).toHaveValue("Ama St.");
+
+  await ctx.close();
+});

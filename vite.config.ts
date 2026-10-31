@@ -42,7 +42,20 @@ export default defineConfig({
               url.pathname.startsWith("/api") || url.pathname.startsWith("/ws"),
             handler: "NetworkOnly",
           },
+          {
+            // Brand fonts: cache after first visit so the UI keeps its look offline.
+            urlPattern: ({ url }) =>
+              url.origin === "https://fonts.googleapis.com" ||
+              url.origin === "https://fonts.gstatic.com",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts",
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
         ],
+        cleanupOutdatedCaches: true,
       },
       devOptions: {
         enabled: true,
